@@ -1,0 +1,1 @@
+start /b  pythonw "D:\files\using\Python\P_PC_SSH_Client\ssh-client\main.py"
