@@ -4,7 +4,7 @@ import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QTabWidget, QWidget,
     QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton,
-    QMessageBox, QLabel, QStatusBar, QToolBar, QMenu,
+    QMessageBox, QLabel, QStatusBar, QToolBar, QMenu, QSystemTrayIcon,
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QAction, QFont, QIcon
@@ -217,7 +217,13 @@ class MainWindow(QMainWindow):
 
         self._sessions: dict[int, SessionTab] = {}  # tab_index -> SessionTab
 
+        import os
+        icon_path = os.path.join(os.path.dirname(__file__), "256x256.ico")
+        self._app_icon = QIcon(icon_path)
+        self.setWindowIcon(self._app_icon)
+
         self._build_ui()
+        self._build_tray()
         self._load_connections()
 
     def _build_ui(self):
@@ -430,13 +436,59 @@ class MainWindow(QMainWindow):
         w = self.tab_widget.currentWidget()
         return w if isinstance(w, SessionTab) else None
 
-    def closeEvent(self, event):
+    # ── 系统托盘 ──────────────────────────────────────────
+
+    def _build_tray(self):
+        self.tray_icon = QSystemTrayIcon(self._app_icon, self)
+        self.tray_icon.setToolTip("PySSH Client")
+
+        tray_menu = QMenu()
+        show_action = QAction("显示主窗口", self)
+        show_action.triggered.connect(self._show_from_tray)
+        tray_menu.addAction(show_action)
+
+        tray_menu.addSeparator()
+
+        quit_action = QAction("退出(&X)", self)
+        quit_action.triggered.connect(self._quit_app)
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.show()
+
+    def _show_from_tray(self):
+        self.showMaximized()
+        self.activateWindow()
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self._show_from_tray()
+
+    def _quit_app(self):
+        """真正退出：关闭所有会话并退出程序。"""
         for tab in self._sessions.values():
             tab.close_session()
-        event.accept()
+        self.tray_icon.hide()
+        QApplication.instance().quit()
+
+    def closeEvent(self, event):
+        """拦截关闭事件，最小化到系统托盘而非退出。"""
+        event.ignore()
+        self.hide()
+        self.tray_icon.showMessage(
+            "PySSH Client",
+            "程序已最小化到系统托盘，双击图标恢复窗口。",
+            QSystemTrayIcon.MessageIcon.Information,
+            2000,
+        )
 
 
 def main():
+    # Windows 下设置 AppUserModelID，让任务栏显示自定义图标而非 Python 图标
+    import ctypes
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PySSH.Client")
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
